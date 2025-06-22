@@ -1,0 +1,6 @@
+proxmox_api_url = "https://<ip a>:8006/api2/json"
+proxmox_username = "<user>@pam"
+proxmox_password = "<password>"
+proxmox_host = "<node>"
+template_name = "debian12-template"
+ansible_ssh_key = "ssh-key-ansible"

@@ -1,0 +1,14 @@
+services:
+  samba:
+    image: vulhub/samba:4.6.3
+    container_name: samba-samba-1
+    restart: always
+    tty: true
+    ports:
+      - "1445:445"
+      - "6699:6699"
+    volumes:
+      - ./smb.conf:/smb.conf
+    command: >
+      sh -c "mkdir -p /var/log/samba &&
+             smbd -F --log-stdout"

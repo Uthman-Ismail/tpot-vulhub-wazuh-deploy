@@ -1,0 +1,13 @@
+services:
+  smtpd:
+    image: vulhub/opensmtpd:6.6.1p1
+    container_name: smtpd
+    restart: always
+    ports:
+      - "8825:25"
+    volumes:
+      - /opt/vulhub-logs/opensmtpd:/var/log/mail
+    command: >
+      sh -c "mkdir -p /var/log/mail &&
+             touch /var/log/mail/smtpd.log &&
+             smtpd -d >> /var/log/mail/smtpd.log 2>&1"

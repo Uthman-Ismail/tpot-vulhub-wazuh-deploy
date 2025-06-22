@@ -1,0 +1,10 @@
+services:
+  struts2:
+    image: vulhub/struts2:s2-067
+    restart: always
+    ports:
+      - "8081:8080"
+      - "5005:5005"
+    volumes:
+      - /opt/vulhub-logs/struts2:/var/log/struts2
+    command: sh -c 'catalina.sh run >> /var/log/struts2/app.log 2>&1'

@@ -1,0 +1,75 @@
+---
+- name: T-Pot - Bootstrapping Python
+  hosts: all
+  gather_facts: false
+  become: true
+  become_method: sudo
+
+  tasks:
+    - name: Get distribution name (All)
+      shell: awk -F= '/^NAME/{print $2}' /etc/os-release | tr -d '"' | cut -d " " -f1
+      register: my_distribution
+ 
+    - name: Set my distribution as global fact
+      set_fact:
+        my_distribution: "{{ my_distribution }}"
+
+    - name: Check if python3 is installed (All)
+      shell: command -v python3
+      register: my_python3
+      failed_when: my_python3.rc not in [0, 1]
+
+    - name: Add python package (Debian, Raspbian, Ubuntu)
+      apt:
+        update_cache: yes
+        name: python3
+        state: present
+      when:
+        - my_distribution.stdout | trim in "Debian"
+        - my_python3.stdout | trim == ""
+    - name: show variables
+      debug:
+        msg: "my distribution - {{ my_distribution }}"
+
+#####################################################################
+# T-Pot - Abort if run as tpot, root or on unsupported distribution #
+#####################################################################
+
+- name: T-Pot - Abort if run as tpot, root or on unsupported distribution
+  hosts: all
+  gather_facts: true
+  become: false
+  tasks:
+    - name: Check if running as root (All)
+      assert:
+        that: ansible_user_id != 'root'
+        fail_msg: "T-Pot playbook should not be run as root."
+        success_msg: "Running as user: {{ ansible_user_id }}."
+
+    - name: Set ansible user as global variable
+      set_fact:
+        ansible_user_id: "{{ ansible_user_id }}"
+
+    - name: Check if running as tpot (All)
+      assert:
+        that: ansible_user_id != 'tpot'
+        fail_msg: "Reserved username `tpot` detected."
+        success_msg: "Running as user: {{ ansible_user_id }}."
+
+    - name: Check if supported distribution (All)
+      assert:
+        that: ansible_distribution in "Debian"
+        fail_msg: "T-Pot is not supported on this plattform: {{ ansible_distribution }}."
+        success_msg: "T-Pot will now install on {{ ansible_distribution }}."
+
+    - name: Set ansible distribution as global variable
+      set_fact:
+        ansible_distribution: "{{ ansible_distribution }}"
+
+    - name: show varibale
+      debug:
+        msg: "ansible user id - {{ ansible_user_id }}"
+
+    - name: show bootstrap and check distribution done
+      debug:
+        msg: "Bootstrap and chech distribution done"

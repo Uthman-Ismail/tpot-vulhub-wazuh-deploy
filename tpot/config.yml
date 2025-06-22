@@ -1,0 +1,124 @@
+---
+######################################################
+# T-Pot - Adjust configs, add users and groups, etc. #
+######################################################
+
+- name: T-Pot - Adjust configs, add users and groups, etc.
+  hosts: all
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Create T-Pot group (All)
+      group:
+        name: tpot
+        gid: 2000
+        state: present
+      when: ansible_distribution in "Debian"
+
+    - name: Create T-Pot user (All)
+      user:
+        name: tpot
+        uid: 2000
+        system: yes
+        shell: /bin/false
+        home: /nonexistent
+        group: tpot
+      when: ansible_distribution in "Debian"
+
+    - name: Change SSH Port to 64295 (Debian)
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        line: "Port 64295"
+        insertafter: EOF
+      when: ansible_distribution in "Debian"
+
+############################
+# T-Pot - Restart services #
+############################
+
+- name: T-Pot - Restart services
+  hosts: all
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Enable Docker Engine upon boot (All)
+      service:
+        name: docker
+        state: restarted
+        enabled: true
+      when: ansible_distribution in "Debian"
+    - name: Restart SSH (All)
+      service:
+        name: "{{ 'sshd' }}"
+        state: restarted
+        enabled: true
+      when: ansible_distribution in "Debian"
+
+#######################################################################
+# T-Pot - Adjust group users, bashrc, clone / update T-Pot repository #
+#######################################################################
+
+- name: T-Pot - Adjust group users, bashrc, clone / update T-Pot repository
+  hosts: all
+  gather_facts: true
+  become: false
+
+  tasks:
+    - name: Check for non-root user id (All)
+      debug:
+        msg: "Detected user: '{{ ansible_user_id }}'"
+      when: ansible_distribution in "Debian"
+      failed_when: ansible_user_id == "root"
+
+    - name: Add aliases with exa (All)
+      blockinfile:
+        path: ~/.bashrc
+        block: |
+          alias dps='grc --colour=on docker ps -f status=running -f status=exited --format "table {{'{{'}}.Names{{'}}'}}\\t{{'{{'}}.Status{{'}}'}}\\t{{'{{'}}.Ports{{'}}'}}" | sort'          
+          alias dpsw='watch -c bash -ic dps'
+          alias mi='micro'
+          alias sudo='sudo '
+          alias ls='exa'
+          alias ll='exa -hlg'
+          alias la='exa -hlag'
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        insertafter: EOF
+        state: present
+      when: exa_install_result is succeeded and ansible_distribution in "Debian"
+
+    - name: Add aliases with eza (Debian)
+      blockinfile:
+        path: ~/.bashrc
+        block: |
+          alias dps='grc --colour=on docker ps -f status=running -f status=exited --format "table {{'{{'}}.Names{{'}}'}}\\t{{'{{'}}.Status{{'}}'}}\\t{{'{{'}}.Ports{{'}}'}}" | sort'          
+          alias dpsw='watch -c bash -ic dps'
+          alias mi='micro'
+          alias sudo='sudo '
+          alias ls='eza'
+          alias ll='eza -hlg'
+          alias la='eza -hlag'
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        insertafter: EOF
+        state: present
+      when: exa_install_result is failed and ansible_distribution in "Debian"
+
+    - name: Clone / Update T-Pot repository (All)
+      git:
+        repo: 'https://github.com/telekom-security/tpotce'
+        dest: '/home/{{ ansible_user_id }}/tpotce/'
+        version: master
+        clone: yes
+        update: no
+      when: ansible_distribution in "Debian"
+
+    - name: Add current user to Docker, T-Pot group (All)
+      become: true
+      user:
+        name: "{{ ansible_user_id }}"
+        groups:
+          - docker
+          - tpot
+        append: yes
+      when: ansible_distribution in "Debian"

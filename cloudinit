@@ -1,0 +1,10 @@
+wget https://cdimage.debian.org/cdimage/cloud/bookworm/latest/debian-12-generic-amd64.qcow2
+qm create 100 --name debian12-template --memory 1024 --net0 virtio,bridge=vmbr0
+qm importdisk 100 debian-12-generic-amd64.qcow2 local-lvm
+qm set 100 --scsihw virtio-scsi-pci --scsi0 local-lvm:vm-100-disk-0
+qm set 100 --ide2 local-lvm:cloudinit
+qm set 100 --boot c --bootdisk scsi0
+qm set 100 --serial0 socket --vga serial0
+qm set 100 --ipconfig0 ip=dhcp
+qm resize 100 scsi0 15G
+qm template 100

@@ -1,0 +1,2 @@
+[tpot]
+<ip a> ansible_user=<user> ansible_become_pass=<password>

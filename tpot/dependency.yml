@@ -1,0 +1,62 @@
+---
+############################################################
+# T-Pot - Install recommended, remove conflicting packages #
+############################################################
+
+- name: T-Pot - Install recommended, remove conflicting packages
+  hosts: all
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Syncing clocks (All)
+      shell: "hwclock --hctosys"
+      when: ansible_distribution in "Debian"
+      ignore_errors: true
+
+    - name: Install recommended packages (Debian)
+      package:
+        name:
+          - apache2-utils
+          - bash-completion
+          - ca-certificates
+          - cracklib-runtime
+          - cron
+          - curl
+          - git
+          - gnupg
+          - grc
+          - htop
+          - micro
+          - net-tools
+          - vim
+          - wget
+        state: latest
+        update_cache: yes
+      when: ansible_distribution in "Debian"
+
+    - name: Install exa (Debian)
+      package:
+        name:
+          - exa
+        state: latest
+        update_cache: yes
+      register: exa_install_result
+      ignore_errors: yes
+      when: ansible_distribution in "Debian"
+
+    - name: Set exa install result as global variable
+      set_fact:
+        exa_install_result: "{{ exa_install_result }}"
+
+    - name: Install eza (if exa failed)
+      package:
+        name:
+          - eza
+        state: latest
+        update_cache: yes
+      when: exa_install_result is failed
+
+    - name: show exa installation result
+      debug:
+        msg: " exa installatin - {{ exa_install_result }}"

@@ -1,0 +1,125 @@
+---
+- name: Update T-Pot Logstash integration
+  hosts: all
+  gather_facts: yes
+  become: true
+  vars:
+    compose_path: "/home/uthman/tpotce/docker-compose.yml"
+    logstash_conf_path: "/home/uthman/tpotce/data/logstash.conf"
+    volume_line: '- ${TPOT_DATA_PATH}/elk/logstash.conf:/etc/logstash/logstash.conf'
+    new_logstash_config: |-
+      ## Logstash service
+      logstash:
+        container_name: logstash
+        restart: always
+        depends_on:
+          elasticsearch:
+            condition: service_healthy
+        environment:
+         - LS_JAVA_OPTS=-Xms1024m -Xmx1024m
+         - TPOT_TYPE=${TPOT_TYPE:-HIVE}
+         - TPOT_HIVE_USER=${TPOT_HIVE_USER}
+         - TPOT_HIVE_IP=${TPOT_HIVE_IP}
+        ports:
+         - "127.0.0.1:64305:64305"
+        mem_limit: 2g
+        image: ${TPOT_REPO}/logstash:${TPOT_VERSION}
+        pull_policy: ${TPOT_PULL_POLICY}
+        volumes:
+         - ${TPOT_DATA_PATH}:/data
+         - ${TPOT_DATA_PATH}/elk/logstash.conf:/etc/logstash/logstash.conf
+    services:
+      - name: samba
+        log_path: "/opt/vulhub-logs/samba/smbd.log"
+        codec: "json"
+        type: "samba"
+      - name: opensmtpd
+        log_path: "/opt/vulhub-logs/opensmtpd/smtpd.log"
+        codec: "plain"
+        type: "opensmtpd"
+      - name: struts2
+        log_path: "/opt/vulhub-logs/struts2/app.log"
+        codec: "json"
+        type: "struts2"
+  tasks:
+
+    - name: Copy smb.conf for Samba CVE
+      copy:
+        src: "logstash.conf"
+        dest: "{{ logstash_conf_path }}"
+
+    - name: Verify docker-compose.yml exists
+      ansible.builtin.stat:
+        path: "{{ compose_path }}"
+      register: compose_file_stat
+
+    - name: Remove existing logstash block
+      ansible.builtin.replace:
+        path: "{{ compose_path }}"
+        regexp: '(^[ \t]+logstash:.*?\n)(^[ \t]+.+?\n)*'
+        replace: ''
+        mode: '0664'
+      when: compose_file_stat.stat.exists
+      register: removed_config
+
+    - name: Add properly indented logstash configuration
+      ansible.builtin.blockinfile:
+        path: "{{ compose_path }}"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        block: |-
+          {{ new_logstash_config | indent(2) }}
+      when: compose_file_stat.stat.exists
+      register: added_config
+
+    - name: Show results
+      ansible.builtin.debug:
+        msg: |
+          Removed existing logstash config: {{ removed_config.changed | default(false) }}
+          Added new logstash config: {{ added_config.changed | default(false) }}
+          
+    - name: Backup original logstash.conf
+      copy:
+        src: "{{ logstash_conf_path }}"
+        dest: "{{ logstash_conf_path }}.bak"
+        remote_src: yes
+        mode: 0644
+
+    - name: Insert input block for each service into logstash.conf
+      blockinfile:
+        path: "{{ logstash_conf_path }}"
+        marker: "# {mark} ANSIBLE MANAGED SERVICE INPUT BLOCK {{ item.name }}"
+        insertafter: '^input\s*{'
+        block: |
+          file {
+            path => ["{{ item.log_path }}"]
+            codec => "{{ item.codec }}"
+            type => "{{ item.type }}"
+          }
+      loop: "{{ services }}"
+
+    - name: Insert filter block for each service into logstash.conf
+      blockinfile:
+        path: "{{ logstash_conf_path }}"
+        marker: "# {mark} ANSIBLE MANAGED SERVICE FILTER BLOCK {{ item.name }}"
+        insertafter: '^filter\s*{'
+        block: |
+          if [type] == "{{ item.type }}" {
+            date {
+              match => [ "timestamp", "ISO8601" ]
+              remove_field => ["unixtime"]
+            }
+            if [message] =~ /(\$\{|\#context|java\.lang|Exception|\.action|cmd=|wget|curl|bash|sh|\.php|passwd|root|Invalid|authentication|relaying denied)/ {
+              mutate {
+                add_tag => ["potential_threat"]
+              }
+            }
+          }
+
+      loop: "{{ services }}"
+
+    - name: Set permissions on logstash.conf
+      file:
+        path: "{{ logstash_conf_path }}"
+        owner: tpot
+        group: tpot
+        mode: '0760'

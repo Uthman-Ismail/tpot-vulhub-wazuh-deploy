@@ -1,0 +1,110 @@
+---
+- name: Create a custom T-Pot docker-compose file
+  hosts: all
+  vars:
+    tpot_compose_path: "/home/{{ ansible_user_id }}/tpotce/docker-compose.yml"
+    custom_compose_path: "/home/{{ ansible_user_id }}/tpotce/docker-compose.yml"
+    needed_services:
+      - elasticsearch
+      - kibana
+      - logstash
+      - map_redis
+      - map_web
+      - map_data
+      - nginx
+      - spiderfoot
+    essential_networks:
+      - nginx_local
+      - ewsposter_local
+
+  pre_tasks:
+    - name: Read original docker-compose file
+      slurp:
+        src: "{{ tpot_compose_path }}"
+      register: original_compose_file
+
+    - name: Parse original docker-compose content
+      set_fact:
+        original_compose: "{{ original_compose_file.content | b64decode | from_yaml }}"
+
+    - name: Parse honeypot services from networks
+      set_fact:
+        honeypot_services: >
+          {{(original_compose_file.content | b64decode | from_yaml).networks |
+          list }}
+
+    - name: Prompt user for services to include
+      pause:
+        prompt: >
+          Enter 'all' to include all honeypot services, or specify services
+          to include from the following list (comma-separated): {{ honeypot_services }}
+      register: user_input
+      no_log: false
+
+    - name: Determine selected services
+      set_fact:
+        selected_services: >
+          {{(user_input.user_input.split(',') + needed_services) | unique 
+          if user_input.user_input | lower != 'all'}}
+
+    - name: Set services
+      set_fact: 
+        selected_networks: "{{ (user_input.user_input.split(',')) | unique }}"
+
+    - name: Print selected services
+      debug:
+        msg: "{{ selected_networks }}"
+
+  tasks:
+    - name: Docker compose for all serverces
+      copy:
+        src: "{{ tpot_compose_path }}"
+        dest: "{{ custom_compose_path }}"
+        remote_src: yes
+      when: user_input.user_input == "all"
+    
+    - name: Prepare other services content
+      set_fact: 
+        other_services: >
+          {{
+                original_compose.services | dict2items |
+                selectattr('key', 'in', selected_services)|   
+                items2dict
+           }}
+  
+    - name: Create custom docker-compose file
+      copy:
+        dest: "{{ custom_compose_path }}"
+        content: |
+          {{ {
+              'networks': original_compose.networks | dict2items | items2dict,
+              'services':
+                {'tpotinit': original_compose.services.tpotinit}
+          } | to_yaml }}
+      when: user_input.user_input != "all"
+
+    - name: Append other services to tpotinit
+      blockinfile:
+        path: "{{ custom_compose_path }}"
+        marker: ""
+        insertafter: "EOF"
+        content: |
+          {{ '  ' +  other_services | to_yaml | indent(2) }}
+
+
+      vars:
+        original_compose_content: "{{ original_compose_file.content | b64decode }}"
+      when: user_input.user_input != "all"
+
+    - name: Display selected services
+      debug:
+        msg: "The custom docker-compose.yml file includes the following services: {{ selected_services }}"
+
+    - name: Validate custom docker-compose file
+      command: docker compose -f "{{ custom_compose_path }}" config
+      register: validation_result
+      failed_when: validation_result.rc != 0
+
+    - name: Display validation results
+      debug:
+        var: validation_result.stdout 

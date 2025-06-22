@@ -1,0 +1,62 @@
+---
+- name: Deploy CVE containers with appropriate logging
+  hosts: all
+  become: true
+  vars:
+    log_base_path: "/opt/vulhub-logs"
+    compose_files:
+      - opensmtpd-compose.yml
+      - samba-compose.yml
+      - struts2-compose.yml
+  tasks:
+
+    - name: Ensure base log directories exist
+      file:
+        path: "{{ log_base_path }}/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - opensmtpd
+        - samba
+        - struts2
+
+    - name: Copy Docker Compose files to remote
+      copy:
+        src: "{{ item }}"
+        dest: "/opt/{{ item }}"
+        mode: '0644'
+      loop: "{{ compose_files }}"
+
+    - name: Copy smb.conf for Samba CVE
+      copy:
+        src: "smb.conf"
+        dest: "/opt/smb.conf"
+      when: "'samba-compose.yml' in compose_files"
+
+    - name: Deploy containers with Docker Compose
+      command: docker compose -f "/opt/{{ item }}" up -d
+      with_items: "{{ compose_files }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Wait for services to initialize
+      wait_for:
+        timeout: 10
+
+    - name: Get Samba container ID
+      command: docker inspect --format='{% raw %}{{.Id}}{% endraw %}' samba-samba-1
+      register: samba_id
+
+    - name: Wait for Samba container log file to exist
+      wait_for:
+        path: "/var/lib/docker/containers/{{ samba_id.stdout }}/{{ samba_id.stdout }}-json.log"
+        timeout: 20
+        state: present
+
+    - name: Create Samba log symlink from container to host
+      file:
+        src: "/var/lib/docker/containers/{{ samba_id.stdout }}/{{ samba_id.stdout }}-json.log"
+        dest: "{{ log_base_path }}/samba/smbd.log"
+        state: link
+        force: yes
+

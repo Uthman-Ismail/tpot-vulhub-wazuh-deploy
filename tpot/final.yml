@@ -1,0 +1,7 @@
+---
+- import_playbook: bootstrapping_check.yml
+- import_playbook: dependency.yml
+- import_playbook: docker.yml
+- import_playbook: config.yml
+- import_playbook: specify_service.yml
+- import_playbook: service.yml

@@ -1,0 +1,100 @@
+---
+########################################
+# T-Pot - Install service and cron job #
+########################################
+
+- name: T-Pot - Install service
+  hosts: all
+  gather_facts: true
+  become: false
+
+  tasks:
+    - name: Install systemd service (All)
+      become: true
+      ansible.builtin.template:
+        src: 'tpot.service'
+        dest: '/etc/systemd/system/tpot.service'
+        owner: root
+        group: root
+        mode: '0755'
+      notify: Reload systemd and enable service
+      when: ansible_distribution in "Debian"
+
+  handlers:
+    - name: Reload systemd and enable service
+      become: true
+      ansible.builtin.systemd:
+        name: tpot.service
+        daemon_reload: yes
+        state: stopped
+        enabled: yes
+      when: ansible_distribution in "Debian"
+
+- name: T-Pot - Setup a randomized daily reboot
+  hosts: all
+  gather_facts: true
+  become: yes
+
+  vars:
+    random_minute: "{{ range(0, 60) | random }}"
+    random_hour: "{{ range(0, 5) | random }}" # We want the reboot randomly happen at night
+
+  tasks:
+    - name: Setup a randomized daily reboot (All)
+      cron:
+        name: "T-Pot Daily Reboot"
+        user: root
+        minute: "{{ random_minute }}"
+        hour: "{{ random_hour }}"
+        job: "bash -c 'systemctl stop tpot.service && docker container prune -f; docker image prune -f; docker volume prune -f; /usr/sbin/shutdown -r +1 \"T-Pot Daily Reboot\"'"        
+        state: present
+      when: ansible_distribution in "Debian"
+
+- name: Configure and Deploy T-Pot
+  hosts: all
+  become: true
+  vars_prompt:
+    - name: "web_username"
+      prompt: "please enter web username"
+      private: false
+
+    - name: "web_password"
+      prompt: "please enter web password"
+      private: true
+
+  tasks:
+
+    # 1. Generate Base64-Encoded WEB_USER Credentials
+    - name: Generate base64-encoded WEB_USER credentials
+      shell: |
+        myWEB_USER_ENC=$(htpasswd -b -n "{{ web_username }}" "{{ web_password }}")
+        echo -n "${myWEB_USER_ENC}" | base64 -w0
+      register: web_user_enc_b64
+
+    # 2. Generate Base64-Encoded Credentials
+    - name: Generate base64-encoded WEB_USER credentials
+      shell: |
+        echo $(htpasswd -n -b "{{ web_username }}" "{{ web_password }}" | base64 -w0)
+      register: web_user_enc
+
+    # 3. Write Credentials to .env File
+    - name: Update WEB_USER in T-Pot config file
+      lineinfile:
+        path: '/home/{{ ansible_user_id }}/tpotce/.env'
+        regexp: '^WEB_USER='
+        line: "WEB_USER={{ web_user_enc.stdout }}"
+        create: yes
+
+    # 4. Pull Docker Images
+    - name: Pull the latest T-Pot Docker images
+      shell: sudo docker compose -f '/home/{{ ansible_user_id }}/tpotce/docker-compose.yml' pull
+
+    - name: Reboot
+      reboot:
+        reboot_timeout: 60
+        pre_reboot_delay: 60
+      ignore_errors: true
+
+    - name: Set ansible port
+      set_fact: 
+        ansible_port: 64295

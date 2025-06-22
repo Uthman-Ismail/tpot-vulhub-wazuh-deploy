@@ -1,0 +1,44 @@
+---
+- name: Manage Logstash config volume in docker-compose.yml
+  hosts: all
+  vars:
+    compose_file_path: /home/uthman/tpotce/docker-compose.yml
+    target_volume: '      - \${TPOT_DATA_PATH}:/data'
+    new_volume_line: '      - \${TPOT_DATA_PATH}/elk/logstash.conf:/etc/logstash/logstash.conf'
+    logstash_conf_pattern: '^\s*-\s*\$\{TPOT_DATA_PATH}/elk/logstash\.conf:/etc/logstash/logstash\.conf$'
+
+  tasks:
+    - name: Verify docker-compose.yml exists
+      ansible.builtin.stat:
+        path: "{{ compose_file_path }}"
+      register: compose_file_stat
+
+    - name: Read current docker-compose content
+      ansible.builtin.slurp:
+        src: "{{ compose_file_path }}"
+      register: compose_content
+      when: compose_file_stat.stat.exists
+
+    - name: Remove any existing logstash.conf volumes
+      ansible.builtin.replace:
+        path: "{{ compose_file_path }}"
+        regexp: "{{ logstash_conf_pattern }}"
+        replace: ""
+      when: compose_file_stat.stat.exists
+      register: removed_existing
+
+    - name: Add new logstash.conf volume in correct position
+      ansible.builtin.replace:
+        path: "{{ compose_file_path }}"
+        regexp: '(^\s*logstash:\s*\n(?:^\s+.+\n)*?^\s+)-\s*\$\{TPOT_DATA_PATH\}:/data(\n(?!\s+-\s*\$\{TPOT_DATA_PATH\}:/data))'
+        replace: '\1- \${TPOT_DATA_PATH}:/data\n\1- \${TPOT_DATA_PATH}/elk/logstash.conf:/etc/logstash/logstash.conf\2'
+      when: 
+        - compose_file_stat.stat.exists
+        - "'logstash:' in (compose_content.content | b64decode)"
+      register: volume_added
+
+    - name: Show results
+      ansible.builtin.debug:
+        msg: |
+          Removed existing volumes: {{ removed_existing.changed | default(false) }}
+          Added new volume: {{ volume_added.changed | default(false) }}
