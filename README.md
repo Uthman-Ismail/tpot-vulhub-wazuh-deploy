@@ -48,50 +48,121 @@ Note: Running T-Pot and Vulhub containers in parallel is resource-intensive. Und
 
 ## Deployment Process
 
-### 1. Cloud-Init Base VM
+This section outlines the step-by-step process to deploy the automated honeypot environment using Terraform and Ansible.
 
-Prepare an Ubuntu base image in Proxmox with Cloud-Init enabled:
-- Create a default user with SSH access
-- Install Docker in the base image
-- Optionally preload system packages
+---
 
-### 2. Terraform Configuration
+###  Prerequisites
 
-Install Terraform:
+1. **Create a Cloud-Init Template**  
+   Use the `cloudinit` configuration file provided to generate a Proxmox template.  
+
+2. **Clone Machines from Template**  
+   - Clone **two VMs**: one for Terraform and one for Ansible,  
+     OR  
+   - Use a **single VM** for both Terraform and Ansible if resources are limited.
+   - In the Cloud-Init tab:
+	- Set your custom **username** and **password**.
+
+---
+
+###  Terraform Configuration
+
+####  Install Terraform
 
 ```bash
 sudo apt-get update && sudo apt-get install -y gnupg software-properties-common
-wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | \
+sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+sudo tee /etc/apt/sources.list.d/hashicorp.list
+
 sudo apt update
 sudo apt-get install terraform
 terraform -install-autocomplete
+````
+
+#### Provider and Version
+
+```hcl
+source  = "Telmate/proxmox"
+version = "3.0.1-rc4"
 ```
 
-Customize `main.tf` to define VM specs, storage, IPs, and SSH configuration.
+#### Configuration Steps
 
-### 3. Ansible Provisioning
+* Customize `main.tf` to define:
 
-Install Ansible and helper tools:
+  * VM specs (CPU, RAM, disk)
+  * Network interfaces and IPs
+  * SSH configuration
+
+* Fill in the `terraform.tfvars` file with your Proxmox credentials and SSH public key.
+
+#### Run Terraform
+
+```bash
+terraform plan    # Review the planned infrastructure
+terraform apply   # Deploy the machines
+```
+
+---
+
+### Ansible Provisioning
+
+#### Install Ansible
 
 ```bash
 sudo apt update && sudo apt install ansible tmux -y
 ```
 
-Generate and distribute SSH keys:
+#### SSH Configuration
+
+* Generate an SSH key:
+
+  ```bash
+  ssh-keygen
+  ```
+* Add the public key to the Terraform variable file so the provisioned VMs are accessible by Ansible.
+
+With Terraform, you can create as many machines as needed — all ready to be configured using Ansible.
+
+---
+
+### Ansible Playbook Setup
+
+* Configure the Ansible `inventory` file with the IP addresses of your target machines.
+
+#### Running Playbooks
+
+Example:
 
 ```bash
-ssh-keygen
-# Add the public key to Terraform variables for passwordless access
+ansible-playbook main.yml -i inventory
 ```
 
-Run the playbook:
+---
 
-```bash
-ansible-playbook site.yml -i inventory
-```
+### Playbook Execution Order
 
-This configures each VM with selected honeypots and prepares Logstash and Wazuh pipelines.
+1. **Run the `final.yml` playbook first.**
+
+   > *Note: This will change your SSH port.*
+
+2. **Run `vulhub_config.yml`**
+   Located inside the `vulhub/` folder, it sets up the Vulhub CVEs.
+
+3. **Run `tpot_logstash.yml`**
+   Configures Logstash to collect logs from Vulhub CVEs.
+
+4. **Run `deploy_wazuh.yml`**
+   Located in the `tpot/` folder, this deploys and connects Wazuh to the honeypot infrastructure.
+
+---
+
+ The deployment is now complete, with honeypots and Vulhub CVEs monitored through Wazuh.
 
 ---
 
@@ -110,9 +181,8 @@ This configures each VM with selected honeypots and prepares Logstash and Wazuh 
 
 ---
 
-## Contact
 
-**Author:** [Your Name]  
+**Author:** Uthman Ismail  
 **Institution:** Polytechnic Institute of Bragança  
 **Supervisors:** Professor Tiago Pedrosa, Professor Jeorge Loureiro
 
