@@ -62,7 +62,7 @@ This section outlines the step-by-step process to deploy the automated honeypot 
      OR  
    - Use a **single VM** for both Terraform and Ansible if resources are limited.
    - In the Cloud-Init tab:
-	- Set your custom **username** and **password**.
+	-- Set your custom **username** and **password**.
 
 ---
 
